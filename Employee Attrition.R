@@ -1,0 +1,266 @@
+---
+  title: "Rohith"
+author: "Rohith"
+date: "3/12/2020"
+output: html_document
+---
+  
+  ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+### Load packages
+# {r loadPackages, warning=FALSE, message=FALSE, results='hide' }
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, reshape, gplots, ggmap,shiny, openxlsx,dplyr,rpart,rpart.plot,caret,neuralnet,nnet,e1071,pROC,randomForest)
+
+```
+
+```{r}
+
+##Load Data
+
+data<-read.csv("EmployeeAttrition.csv")
+Data1<-data
+
+#Removing columns which are not needed for anaylsis
+data<-data[,c(-9,-10,-27)]
+
+data<-data[,-18]
+data$Age<-data$ï..Age
+data<-data[,-1]
+
+Data<-data
+
+```
+
+
+```{r}
+
+##Exploratory Data Analysis
+
+data<-read.csv("EmployeeAttrition.csv")
+
+counts <- table(data$Attrition)
+
+##Barplot of IBM company Attrition 
+barplot(counts, main="IBM Attrition",
+        xlab="Attrition",col=c("gray"))
+
+##Histogram of Attrition by age
+hist(Age, col = 'darkblue', breaks =10)
+
+##Distribution of Attrition by Job role
+
+counts3 <- table(data$Attrition,data$JobRole)
+
+
+barplot(counts3, main="Attrition by Job Role",
+        xlab="Job Role", col=c("darkblue","red"),
+        legend = rownames(counts3), beside=TRUE)
+
+##Histogram of Attrition by age
+ggplot(data, aes(x = Age, group = Attrition, fill = Attrition)) +
+  geom_histogram(colour = "darkblue", binwidth = 0.5, alpha = 0.5,
+                 position = "identity")
+
+
+```
+
+```{r}
+
+##Decision tree
+
+train.df <-data %>% dplyr::filter(row_number() %% 2 == 0) #Select even rows
+valid.df<-data %>% dplyr::filter(row_number() %% 2 == 1) #Select odd rows
+
+default.ct <- rpart(Attrition ~ ., data = train.df ,method = "class")
+prp(default.ct, type = 1, extra = 2, under = TRUE, split.font = 1, varlen = -10)
+length(default.ct$frame$var[default.ct$frame$var == "<leaf>"])
+
+
+default.ct.point.pred.train <- predict(default.ct,train.df,type = "class")
+# generate confusion matrix for training data
+confusionMatrix(default.ct.point.pred.train, as.factor(train.df$Attrition))
+
+# generate confusion matrix for Validation data
+default.ct.point.pred.valid <- predict(default.ct,valid.df,type = "class")
+confusionMatrix(default.ct.point.pred.valid, as.factor(valid.df$Attrition))
+
+
+##Implementing a decision tree with maxdepth
+default.ct.maxdep <- rpart(Attrition ~ ., data = train.df ,control = rpart.control(maxdepth = 4),method = "class")
+prp(default.ct.maxdep, type = 1, extra = 2, under = TRUE, split.font = 1, varlen = -10)
+
+library(pROC)
+# ROC for Decision Tree:
+
+r <- roc(valid.df$Attrition,as.integer(default.ct.point.pred.valid))
+plot.roc(r)
+# compute auc
+auc(r)
+
+
+
+```
+
+
+```{r}
+
+##Random Forest
+
+library(randomForest)
+## random forest
+rf <- randomForest(as.factor(Attrition) ~ ., data = train.df, ntree = 500,
+                   mtry = 4, nodesize = 5, importance = TRUE)
+
+
+## variable importance plot
+varImpPlot(rf, type = 1)
+
+## confusion matrix
+rf.pred <- predict(rf, valid.df)
+confusionMatrix(rf.pred, valid.df$Attrition)
+
+
+
+
+```
+
+```{r}
+##Logistic Regression
+
+data<-Data
+
+data$Attrition<-as.factor(ifelse(data$Attrition=="Yes", 1, 0))
+data$BusinessTravel<-as.factor(data$BusinessTravel)
+data$Age<-as.factor(findInterval(data$Age, c(20, 30, 40,50,60)))
+data$DailyRate <-as.factor(findInterval(data$DailyRate, c(1000,2000, 3000, 4000,5000)))
+data$DistanceFromHome<-as.factor(findInterval(data$DistanceFromHome, c(10,20, 30, 40,50)))
+
+data$Education<-as.factor(data$Education)
+data$EducationField<-as.factor(data$EducationField)
+data$EnvironmentSatisfaction<-as.factor(data$EnvironmentSatisfaction)
+data$Gender<-as.factor(data$Gender)
+
+data$MonthlyIncome<-as.factor(findInterval(data$MonthlyIncome, c(1000,2000,3000,4000,5000,6000,7000,8000,9000,10000)))
+
+
+cols <- c("JobInvolvement", "JobLevel", "JobSatisfaction","PerformanceRating","RelationshipSatisfaction","StockOptionLevel","WorkLifeBalance")
+data[cols] <- lapply(data[cols], factor)
+
+data<-data[,c(-10,-17,-18,-20,-24,-25,-27,-28,-29,-30)]
+
+train.df <-data %>% dplyr::filter(row_number() %% 2 == 0) #Select even rows
+valid.df<-data %>% dplyr::filter(row_number() %% 2 == 1) #Select odd rows
+
+
+logit.reg <- glm(train.df$Attrition ~ ., data = train.df, family = "binomial") 
+
+logit.reg.pred.train <- predict(logit.reg, train.df[, -1], type = "response")
+confusionMatrix(as.factor(1 * (logit.reg.pred.train > 0.5)),as.factor(train.df$Attrition))
+
+logit.reg.pred.valid <- predict(logit.reg, valid.df[, -1], type = "response")
+confusionMatrix(as.factor(1 * (logit.reg.pred.valid > 0.5)), as.factor(valid.df$Attrition))
+
+
+#ROC for Logistic Regression:
+
+library(pROC)
+r <- roc(valid.df$Attrition,logit.reg.pred.valid)
+plot.roc(r)
+# compute auc
+auc(r)
+
+# first 5 actual and predicted records
+data.frame(actual = valid.df$Attrition[1:10], predicted = logit.reg.pred.valid[1:10])
+
+
+```
+
+
+```{r}
+
+##Neural network
+
+data<-Data
+
+data<-data[,c(-2,-4,-7,-9,-13,-15,-18,-19)]
+
+data<-data[,c(1,2,4,8,10,13,21,23)]
+
+train.df <-data %>% dplyr::filter(row_number() %% 2 == 0) #Select even rows
+valid.df<-data %>% dplyr::filter(row_number() %% 2 == 1) #Select odd rows
+
+
+library(neuralnet)
+
+
+set.seed(1)
+nn <- neuralnet(Attrition ~ ., data = train.df, linear.output = F, hidden = 3)
+
+# display weights
+nn$weights
+
+
+# plot network
+plot(nn, rep="best")
+
+```
+
+```{r}
+##SVM
+
+data<-Data
+data<-data[,c(-2,-4,-7,-9,-13,-15,-18,-19)]
+
+train.df <-data %>% dplyr::filter(row_number() %% 2 == 0) #Select even rows
+valid.df<-data %>% dplyr::filter(row_number() %% 2 == 1) #Select odd rows
+
+
+svm1 <- svm(Attrition~., data=train.df)
+svm1
+
+pred1 <- predict(svm1, train.df)
+
+# Performance evaluation - confusion matrix
+confusionMatrix(table(pred1, train.df$Attrition))
+confusionMatrix(table(pred1, valid.df$Attrition))
+
+
+```
+
+```{r}
+
+##NaiveBayes
+
+data<-Data1
+
+data<-data[,c(-10,-17,-18,-20,-24,-25,-27,-28,-29,-30)]
+data<-data[,c(1,2,3,4,6,9,15,16,21)]
+data<-data[,-5]
+
+train.df <-data %>% dplyr::filter(row_number() %% 2 == 0) #Select even rows
+valid.df<-data %>% dplyr::filter(row_number() %% 2 == 1) #Select odd rows
+
+nb<-naiveBayes(Attrition ~ ., data = train.df)
+
+nb
+
+
+# probabilities
+#type=raw gives you prob
+pred.prob <- predict(nb, valid.df, type = "raw")
+# class membership
+pred.class <- predict(nb, valid.df)
+pred.class1 <- predict(nb, train.df)
+
+# Data frame with actual and predicted values
+df <- data.frame(valid.df$Attrition, pred.class, pred.prob)
+
+confusionMatrix(table(pred.class1,train.df$Attrition))
+confusionMatrix(table(pred.class,valid.df$Attrition))
+
+```
+
